@@ -8,10 +8,10 @@
 using namespace cv;
 using namespace std;
 
-#define SSIZE 10 // How many elements to pick out: sample size
-#define THRESHOLD 0.05 // RANSAC distance threshold in meter
+#define SSIZE 20 // How many elements to pick out: sample size
+#define THRESHOLD 0.02 // RANSAC distance threshold in meter
 #define NEIGHDIST 1 // Neighborhood size to pick from during estimation
-#define TOLERANCE 1000 // Tolerance for neighborhood density
+#define TOLERANCE 700 // Tolerance for neighborhood density
 #define ITER 500 // Ransac iteration number
 #define OBJS 6 // Number of planes to detect
 
@@ -189,26 +189,19 @@ vector<pair<Point3f, int>> getPointsInRange(vector<pair<Point3f, int>> subset, P
 	return result;
 }
 
-vector<Point3f> pickRandomElements(int n, vector<pair<Point3f, int>> points) // Generate n different random integers, in [0, num] range
+vector<Point3f> pickRandomElements(int n, vector<pair<Point3f, int>> points) // Pick random elements from a set of pair points
 {
-	if (n > points.size())
-	{
-		cout << "Error in random sampling: too few values to pick from  " << endl;
-	}
+	int num = points.size() - 1;
+	vector<Point3f> resultPick;
+	vector<int> result;
 
-	int num = points.size();
-	vector<Point3f> result_arr;
-	vector<int> result = vector<int>();
-
-	while (result_arr.size() < n) // Pick a random element within e.g. 1 meter range
+	while (result.size() < n)
 	{
-		Point3f firstPt;
-		float randf = (float)(rand()) / RAND_MAX;
-		int randi = (int)(randf * num);
+		int randi = (rand() % (num + 1)); // Generate a random number 
+
 		if (result.size() == 0)
 		{
 			result.push_back(randi);
-			result_arr.push_back(points.at(randi).first);
 		}
 		else
 		{
@@ -218,23 +211,24 @@ vector<Point3f> pickRandomElements(int n, vector<pair<Point3f, int>> points) // 
 				if (result.at(i) == randi)
 				{
 					flag = true;
-					break;
 				}
 			}
 			if (!flag)
 			{
 				result.push_back(randi);
-				result_arr.push_back(points.at(randi).first);
 			}
 		}
 	}
 
-	if (result_arr.size() == 0)
+	for (int i = 0; i < n; i++)
 	{
-		cout << "Error in random sampling: no elements picked" << endl;
+
+		int ind = result.at(i);
+		Point3f newPt = points.at(ind).first;
+		resultPick.push_back(newPt);
 	}
 
-	return result_arr;
+	return resultPick;
 }
 
 vector<float> calculateDistances(vector<pair<Point3f, int>> points, float* params) // Calculates plane-line distance
@@ -259,11 +253,11 @@ int flagInliers(vector<bool> &mask, vector<float> distances) // Flag true on mas
 	{
 		if (distances.at(i) < THRESHOLD) // Inlier
 		{
+			mask.at(i) = true;
+		}
+		if (mask.at(i)) // This is separate -> on further iterations there will be trues which were classified as inliers on a previous iteration
+		{
 			inlierCount++;
-			if (!mask.at(i)) // Has not been flagged as an inlier before
-			{
-				mask.at(i) = true;
-			}
 		}
 	}
 	return inlierCount;
@@ -302,13 +296,13 @@ void outputCloud(vector<pair<Point3f, int>> points, int i, string message) // Ou
 
 int main(int argc, char** argv)
 {
+	cout << "Starting robust estimation..." << endl;
+
 	vector<pair<Point3f, int>> points = readFile(argv, true);
 	vector<pair<Point3f, int>> subset = points;
 	
 	int num = points.size();
 	vector<bool> fullMask = getEmptyMask(num);
-
-	cout << "Starting robust estimation on " << num << " points."<< endl << endl;
 
 	// Number of planes to detect
 	for (int h = 0; h < OBJS; h++) // Iterate over objects
@@ -317,7 +311,7 @@ int main(int argc, char** argv)
 
 		int bestInlierNum = 0;
 		float* bestParams = new float[4];
-		vector<bool> bestInlierSubMask;
+		vector<bool> bestInlierSubMask = getEmptyMask(subset.size());
 
 		for (int i = 0; i < ITER; i++) // RANSAC iteration
 		{
@@ -326,7 +320,7 @@ int main(int argc, char** argv)
 			
 			do 
 			{
-				Point3f midPoint = pickRandomElements(4, subset).at(3); // Pick a random point
+				Point3f midPoint = pickRandomElements(3, subset).at(2); // Pick a random point
 
 				rangeset = getPointsInRange(subset, midPoint, NEIGHDIST); // Filter out points in a NEIGHDIST meter distance from it
 				
@@ -335,13 +329,13 @@ int main(int argc, char** argv)
 			while (rangeCount < TOLERANCE); // Make sure that we pick a point from a dense neighborhood 
 
 			vector<Point3f> ranSample = pickRandomElements(SSIZE, rangeset); // Randomly pick 4 elements from the filtered subset
-			
+
 			float* params = estimatePlane(ranSample); // Fit a plane to the 4 randomly picked points
-			
+
 			vector<float> distances = calculateDistances(subset, params); // Calculate distances for inlier thresholding
-			
+
 			vector<bool> subMask = getEmptyMask(subset.size()); // Create an inlier -> true / outlier -> false mask --> all false now
-			
+
 			int inlierCount = flagInliers(subMask, distances); // Set inliers from false to true
 
 			if (inlierCount > bestInlierNum) // Assign new best variables if necessary
@@ -355,7 +349,7 @@ int main(int argc, char** argv)
 		vector<pair<Point3f, int>> inlierSet = removeElements(points, bestInlierSubMask, "inlier"); // Get inlier points for current plane params
 
 		vector<Point3f> inlierPoints = getFirst(inlierSet); // Get point set for inlier points
-		
+
 		float* inlierParams = estimatePlane(inlierPoints); // Reestimate the plane on the inlier set
 
 		vector<float> distancesFull = calculateDistances(points, inlierParams); // Calculate distances for reestimated plane
@@ -367,9 +361,9 @@ int main(int argc, char** argv)
 		int inlierCountRef = flagInliers(refMask, distancesFull); // Flag inliers for current iteration 
 
 		subset = removeElements(points, fullMask, "outlier"); // Keep only outliers for next round of estimation
-		
+
 		vector<pair<Point3f, int>>  refPoints = removeElements(points, refMask, "inlier"); // Keep only inliers
-			 
+
 		outputCloud(subset, h, "# Subset"); // Output the full outlier pointcloud 
 
 		outputCloud(refPoints, 11+h, "# Reference points"); // Output the reference point cloud
