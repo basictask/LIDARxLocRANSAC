@@ -9,9 +9,9 @@ using namespace cv;
 using namespace std;
 
 #define sampleSize 4 // How many elements to pick out
-#define THRESHOLD 0.05 // RANSAC threshold
-#define ITER 500 // Ransac iteration number
-#define OBJS 3 // Number of planes to detect
+#define THRESHOLD 0.05 // RANSAC threshold in meter
+#define ITER 700 // Ransac iteration number
+#define OBJS 10 // Number of planes to detect
 
 vector<float> splitString(string arg, char splitter) // Split a string on given character and return as an array
 {
@@ -52,7 +52,13 @@ vector<pair<Point3f, int>> readFile(char** argv, bool header) // Read points int
 					pair<Point3f, int> elem;
 					elem.first = Point3f((float)data[7], (float)data[8], (float)data[9]);
 					elem.second = (int)data[0];
-					pairs.push_back(elem);
+					
+					float distFromOrigo = sqrt(elem.first.x * elem.first.x + elem.first.y * elem.first.y + elem.first.z * elem.first.z);
+					
+					if (distFromOrigo > 3.5)
+					{
+						pairs.push_back(elem);
+					}
 				}
 			}
 		}
@@ -153,7 +159,7 @@ float* estimatePlane(vector<Point3f> pts) // Fit a plane to a subset of points
 	float C = evecs.at<float>(3, 2);
 	float D = (-A * cog.x - B * cog.y - C * cog.z);
 
-	float norm = sqrt(A*A + B * B + C * C);
+	float norm = sqrt(A * A + B * B + C * C);
 
 	float* ret = new float[4];
 
@@ -171,13 +177,16 @@ vector<Point3f> pickRandomElements(int n, vector<pair<Point3f, int>> points) // 
 	vector<Point3f> result_arr;
 	vector<int> result = vector<int>();
 
-	while (result.size() < n)
+	while (result.size() < n) // Pick a random element within e.g. 1 meter range
 	{
+		Point3f firstPt;
 		float randf = (float)(rand()) / RAND_MAX;
 		int randi = (int)(randf * num);
 		if (result.size() == 0)
 		{
 			result.push_back(randi);
+			result_arr.push_back(points.at(randi).first);
+			
 		}
 		else
 		{
@@ -192,25 +201,25 @@ vector<Point3f> pickRandomElements(int n, vector<pair<Point3f, int>> points) // 
 			if (!flag)
 			{
 				result.push_back(randi);
+				result_arr.push_back(points.at(randi).first);
 			}
 		}
-	}
-	
-	for (int i = 0; i < n; i++)
-	{
-		result_arr.push_back(points.at(result.at(i)).first);
 	}
 
 	return result_arr;
 }
 
-vector<float> calculateDistances(vector<pair<Point3f, int>> points, float* params)
+vector<float> calculateDistances(vector<pair<Point3f, int>> points, float* params) // Calculates plane-line distance
 {
 	vector<float> result;
 	for (int i = 0; i < points.size(); i++)
 	{
 		Point3f pt = points.at(i).first;
-		result.push_back(fabs(params[0] * pt.x + params[1] * pt.y + params[2] * pt.z + params[3]));
+		float A = params[0];
+		float B = params[1];
+		float C = params[2];
+		float D = params[3];
+		result.push_back(fabs(A * pt.x + B * pt.y + C * pt.z + D));
 	}
 	return result;
 }
@@ -267,6 +276,7 @@ int main(int argc, char** argv)
 {
 	vector<pair<Point3f, int>> points = readFile(argv, true);
 	vector<pair<Point3f, int>> subset = points;
+	
 	int num = points.size();
 	vector<bool> fullMask = getEmptyMask(num);
 
@@ -278,6 +288,8 @@ int main(int argc, char** argv)
 		int bestInlierNum = 0;
 		float* bestParams = new float[4];
 		vector<bool> bestInlierSubMask;
+
+		cout << "Subset size: " << subset.size() << endl;
 
 		for (int i = 0; i < ITER; i++) // RANSAC iteration
 		{
@@ -315,9 +327,9 @@ int main(int argc, char** argv)
 		
 		vector<pair<Point3f, int>>  refPoints = removeElements(points, refMask, "inlier"); // Keep only inliers
 			 
-		outputCloud(subset, h, "Created by Daniel Kuknyo"); // Output the full outlier pointcloud 
+		outputCloud(subset, h, "# Subset"); // Output the full outlier pointcloud 
 
-		outputCloud(refPoints, h + 5, "Reference points for specific iteration"); // Output the reference point cloud
+		outputCloud(refPoints, OBJS+h+1, "# Reference points"); // Output the reference point cloud
 
 		cout << "Plane params: " << inlierParams[0] << ", " << inlierParams[1] << ", " << inlierParams[2] << ", " << inlierParams[3] << endl;
 		cout << "Number of total inliers: " << inlierCountFull << endl;
