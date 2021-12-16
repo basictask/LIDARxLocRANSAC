@@ -9,11 +9,11 @@ using namespace cv;
 using namespace std;
 
 #define SSIZE 100 // How many elements to pick out: sample size
-#define THRESHOLD 0.1 // RANSAC distance threshold in meter
+#define THRESHOLD 0.2 // RANSAC distance threshold in meter
 #define NEIGHDIST 1 // Neighborhood size to pick from during estimation
-#define TOLERANCE 700 // Tolerance for neighborhood density
+#define TOLERANCE 600 // Tolerance for neighborhood density
 #define ITER 500 // Ransac iteration number
-#define OBJS 6 // Number of planes to detect
+#define OBJS 8 // Number of planes to detect
 
 vector<float> splitString(string arg, char splitter) // Split a string on given character and return as an array
 {
@@ -309,8 +309,6 @@ int main(int argc, char** argv)
 	{	
 		cout << "Subset size: " << subset.size() << endl;
 
-		outputCloud(subset, 20 + h, "# Subset output for debugging"); // Have to delete this later
-
 		int bestInlierNum = 0;
 		float* bestParams = new float[4];
 		vector<bool> bestInlierSubMask = getEmptyMask(subset.size());
@@ -322,7 +320,7 @@ int main(int argc, char** argv)
 			
 			do 
 			{
-				Point3f midPoint = pickRandomElements(3, subset).at(2); // Pick a random point
+				Point3f midPoint = pickRandomElements(2, subset).at(1); // Pick a random point
 
 				rangeset = getPointsInRange(subset, midPoint, NEIGHDIST); // Filter out points in a NEIGHDIST meter distance from it
 				
@@ -348,7 +346,7 @@ int main(int argc, char** argv)
 			}
 		}
 
-		vector<pair<Point3f, int>> inlierSet = removeElements(points, bestInlierSubMask, "inlier"); // Get inlier points for current plane params
+		vector<pair<Point3f, int>> inlierSet = removeElements(subset, bestInlierSubMask, "inlier"); // Get inlier points for current plane params
 
 		vector<Point3f> inlierPoints = getFirst(inlierSet); // Get point set for inlier points
 
@@ -366,14 +364,13 @@ int main(int argc, char** argv)
 
 		vector<pair<Point3f, int>>  refPoints = removeElements(points, refMask, "inlier"); // Keep only inliers
 
-		outputCloud(subset, h, "# Subset"); // Output the full outlier pointcloud 
-
-		outputCloud(refPoints, 11+h, "# Reference points"); // Output the reference point cloud
-
 		cout << "Plane params: " << inlierParams[0] << ", " << inlierParams[1] << ", " << inlierParams[2] << ", " << inlierParams[3] << endl;
 		cout << "Number of total inliers: " << inlierCountFull << endl;
 		cout << "Number of current inliers: " << inlierCountRef << endl; 
-		cout << "Finished processing plane " << h << endl << endl;
+		cout << "Finished processing plane " << h+1 << endl << endl;
+
+		outputCloud(subset, h, "# Subset"); // Output the full outlier pointcloud 
+		outputCloud(refPoints, 11 + h, "# Reference points"); // Output the reference point cloud
 	}
 
 	return 0;
