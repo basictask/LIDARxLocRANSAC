@@ -8,8 +8,8 @@
 using namespace cv;
 using namespace std;
 
-#define SSIZE 20 // How many elements to pick out: sample size
-#define THRESHOLD 0.02 // RANSAC distance threshold in meter
+#define SSIZE 100 // How many elements to pick out: sample size
+#define THRESHOLD 0.1 // RANSAC distance threshold in meter
 #define NEIGHDIST 1 // Neighborhood size to pick from during estimation
 #define TOLERANCE 700 // Tolerance for neighborhood density
 #define ITER 500 // Ransac iteration number
@@ -308,6 +308,8 @@ int main(int argc, char** argv)
 	for (int h = 0; h < OBJS; h++) // Iterate over objects
 	{	
 		cout << "Subset size: " << subset.size() << endl;
+
+		outputCloud(subset, 20 + h, "# Subset output for debugging"); // Have to delete this later
 
 		int bestInlierNum = 0;
 		float* bestParams = new float[4];
