@@ -8,7 +8,8 @@
 using namespace cv;
 using namespace std;
 
-#define OBJS 10 // Number of planes to detect
+// Hyperparameters to configure before running. All values are configured for VLP16 LIDAR.
+#define OBJS 8 // Number of planes to detect
 #define ITER 500 // Ransac number of iterations
 #define SSIZE 4 // How many elements to pick out: sample size
 #define THRESHOLD 0.3 // RANSAC error distance threshold in meter
@@ -366,6 +367,7 @@ int main(int argc, char** argv)
 {
 	cout << "Starting robust estimation..." << endl;
 
+	// Setup initial values
 	vector<pair<Point3f, int>> points = readFile(argv, true);
 	vector<pair<Point3f, int>> subset = points;
 	vector<pair<Point3f, int>> finalset;
@@ -440,11 +442,11 @@ int main(int argc, char** argv)
 
 		vector<pair<Point3f, int>>  refPoints = removeElements(points, refMask, "inlier"); // Keep only inliers
 
-		float avgIntensity = estimateAverageIntensity(refPoints);
+		float avgIntensity = estimateAverageIntensity(refPoints); // Estimate the average intensity of inlier points
 
-		float medIntensity = estimateMedianIntensity(refPoints);
+		float medIntensity = estimateMedianIntensity(refPoints); // Estimate the median intensity of inlier points
 
-		processRefPoints(medIntensity, refPoints, finalset);
+		processRefPoints(medIntensity, refPoints, finalset); // Add the component to the final result based on inlier intensity
 
 		cout << "Plane params: " << inlierParams[0] << ", " << inlierParams[1] << ", " << inlierParams[2] << ", " << inlierParams[3] << endl;
 		cout << "Total inliers: " << inlierCountFull << endl;
@@ -453,11 +455,11 @@ int main(int argc, char** argv)
 		cout << "Median intensity: " << medIntensity << endl;
 		cout << "Finished processing object " << h+1 << endl << endl;
 
-		outputCloud(subset, h+1, "# Subset"); // Output the full outlier pointcloud 
-		outputCloud(refPoints, 11 + h, "# Reference points"); // Output the reference point cloud
+		outputCloud(subset, h+1, "# Outlier set in an iteration after removing component."); // Output the full outlier pointcloud 
+		outputCloud(refPoints, 11 + h, "# Reference points belonging to a specific component."); // Output the reference point cloud
 	}
 
-	outputCloud(finalset, 99, "Final assembled points");
+	outputCloud(finalset, 99, "Final assembled points"); // Output the final point cloud 
 
 	return 0;
 }
