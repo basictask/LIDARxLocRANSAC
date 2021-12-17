@@ -8,12 +8,13 @@
 using namespace cv;
 using namespace std;
 
-#define SSIZE 100 // How many elements to pick out: sample size
-#define THRESHOLD 0.2 // RANSAC distance threshold in meter
+#define OBJS 10 // Number of planes to detect
+#define ITER 500 // Ransac number of iterations
+#define SSIZE 4 // How many elements to pick out: sample size
+#define THRESHOLD 0.3 // RANSAC error distance threshold in meter
 #define NEIGHDIST 1 // Neighborhood size to pick from during estimation
-#define TOLERANCE 600 // Tolerance for neighborhood density
-#define ITER 500 // Ransac iteration number
-#define OBJS 8 // Number of planes to detect
+#define TOLERANCE 600 // Tolerance for neighborhood density fom middle point
+#define INTENSITYTHRESH 15.5 // Threshold for outputting objects above intensity level
 
 vector<float> splitString(string arg, char splitter) // Split a string on given character and return as an array
 {
@@ -117,6 +118,16 @@ vector<Point3f> getFirst(vector<pair<Point3f, int>> points) // Retrieve points f
 	return result;
 }
 
+vector<int> getSecond(vector<pair<Point3f, int>> points)
+{
+	vector<int> result;
+	for (int i = 0; i < points.size(); i++)
+	{
+		result.push_back(points.at(i).second);
+	}
+	return result;
+}
+
 Point3f centerOfGravity(vector<Point3f> pts) // Calculate the center of gravity given a set of points in 3D
 {
 	Point3f cog;
@@ -187,6 +198,27 @@ vector<pair<Point3f, int>> getPointsInRange(vector<pair<Point3f, int>> subset, P
 		}
 	}
 	return result;
+}
+
+void updateTolTries(int &tol, int &tries, int tolThresh) // This will guarantee that the algorithm finishes every time
+{
+	if (tries >= tolThresh)
+	{
+		tol -= 50;
+		tries = 0;
+	}
+	else
+	{
+		tries++;
+	}
+}
+
+void printLoadingBar(int i)
+{
+	if (i % (int)(ITER / 20) == 0)
+	{
+		cout << ">";
+	}
 }
 
 vector<Point3f> pickRandomElements(int n, vector<pair<Point3f, int>> points) // Pick random elements from a set of pair points
@@ -294,13 +326,50 @@ void outputCloud(vector<pair<Point3f, int>> points, int i, string message) // Ou
 	myfile.close();
 }
 
+float estimateAverageIntensity(vector<pair<Point3f, int>> points) // Estimate the average intensity values for an object
+{
+	float result = 0;
+	int num = points.size();
+	for (int i = 0; i < num; i++)
+	{
+		result += points.at(i).second;
+	}
+	result /= num;
+	return result;
+}
+
+float estimateMedianIntensity(vector<pair<Point3f, int>> points)
+{
+	int n = points.size();
+	vector<int> arr = getSecond(points);
+	sort(arr.begin(), arr.end());
+	
+	if (n % 2 == 0)
+	{
+		return (arr[n / 2 - 1] + arr[n / 2]) / 2;
+	}
+	return arr[n / 2];
+}
+
+void processRefPoints(float intensity, vector<pair<Point3f, int>> refPoints, vector<pair<Point3f, int>> &finalset)
+{
+	if (intensity > INTENSITYTHRESH)
+	{
+		for (int i = 0; i < refPoints.size(); i++)
+		{
+			finalset.push_back(refPoints.at(i));
+		}
+	}
+}
+
 int main(int argc, char** argv)
 {
 	cout << "Starting robust estimation..." << endl;
 
 	vector<pair<Point3f, int>> points = readFile(argv, true);
 	vector<pair<Point3f, int>> subset = points;
-	
+	vector<pair<Point3f, int>> finalset;
+
 	int num = points.size();
 	vector<bool> fullMask = getEmptyMask(num);
 
@@ -309,12 +378,14 @@ int main(int argc, char** argv)
 	{	
 		cout << "Subset size: " << subset.size() << endl;
 
+		int tries = 0;
+		int tol = TOLERANCE;
 		int bestInlierNum = 0;
 		float* bestParams = new float[4];
 		vector<bool> bestInlierSubMask = getEmptyMask(subset.size());
 
 		for (int i = 0; i < ITER; i++) // RANSAC iteration
-		{
+		{	
 			int rangeCount = 0;
 			vector<pair<Point3f, int>> rangeset;
 			
@@ -325,8 +396,10 @@ int main(int argc, char** argv)
 				rangeset = getPointsInRange(subset, midPoint, NEIGHDIST); // Filter out points in a NEIGHDIST meter distance from it
 				
 				rangeCount = rangeset.size(); // This will guarantee to have enough samples in the range
+				
+				updateTolTries(tol, tries, 1000);
 			} 
-			while (rangeCount < TOLERANCE); // Make sure that we pick a point from a dense neighborhood 
+			while (rangeCount < tol); // Make sure that we pick a point from a dense neighborhood 
 
 			vector<Point3f> ranSample = pickRandomElements(SSIZE, rangeset); // Randomly pick 4 elements from the filtered subset
 
@@ -344,7 +417,10 @@ int main(int argc, char** argv)
 				bestInlierSubMask = subMask;
 				bestParams = params;
 			}
+
+			printLoadingBar(i); // This part will print the loading bar
 		}
+		cout << endl;
 
 		vector<pair<Point3f, int>> inlierSet = removeElements(subset, bestInlierSubMask, "inlier"); // Get inlier points for current plane params
 
@@ -364,14 +440,24 @@ int main(int argc, char** argv)
 
 		vector<pair<Point3f, int>>  refPoints = removeElements(points, refMask, "inlier"); // Keep only inliers
 
-		cout << "Plane params: " << inlierParams[0] << ", " << inlierParams[1] << ", " << inlierParams[2] << ", " << inlierParams[3] << endl;
-		cout << "Number of total inliers: " << inlierCountFull << endl;
-		cout << "Number of current inliers: " << inlierCountRef << endl; 
-		cout << "Finished processing plane " << h+1 << endl << endl;
+		float avgIntensity = estimateAverageIntensity(refPoints);
 
-		outputCloud(subset, h, "# Subset"); // Output the full outlier pointcloud 
+		float medIntensity = estimateMedianIntensity(refPoints);
+
+		processRefPoints(medIntensity, refPoints, finalset);
+
+		cout << "Plane params: " << inlierParams[0] << ", " << inlierParams[1] << ", " << inlierParams[2] << ", " << inlierParams[3] << endl;
+		cout << "Total inliers: " << inlierCountFull << endl;
+		cout << "Current inliers: " << inlierCountRef << endl; 
+		cout << "Average intensity: " << avgIntensity << endl;
+		cout << "Median intensity: " << medIntensity << endl;
+		cout << "Finished processing object " << h+1 << endl << endl;
+
+		outputCloud(subset, h+1, "# Subset"); // Output the full outlier pointcloud 
 		outputCloud(refPoints, 11 + h, "# Reference points"); // Output the reference point cloud
 	}
+
+	outputCloud(finalset, 99, "Final assembled points");
 
 	return 0;
 }
