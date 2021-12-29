@@ -360,6 +360,50 @@ void processRefPoints(float intensity, vector<pair<Point3f, int>> refPoints, vec
 		{
 			finalset.push_back(refPoints.at(i));
 		}
+		cout << "Object added to final cloud! " << endl;
+	}
+}
+
+void calculateAngle(float intensity, float* inlierParams, vector<float*> &foundPlanes) // Calculate the angle between walls
+{
+	if (intensity < INTENSITYTHRESH) // Don't execute if points are insignificant 
+		return; 
+
+	foundPlanes.push_back(inlierParams); // Add newly found parameters to collector
+
+	int num = foundPlanes.size();
+	
+	if (num < 2) // Not enough planes to detect 
+		return; 
+
+	Point3f comp(foundPlanes.at(num - 1)[0], foundPlanes.at(num - 1)[1], foundPlanes.at(num - 1)[2]); // Params for newly added wall
+
+	cout << "Angles calculated between... " << endl;
+
+	for (int i = 0; i < num - 1; i++) // Compare with every other wall
+	{
+		Point3f curr(foundPlanes.at(i)[0], foundPlanes.at(i)[1], foundPlanes.at(i)[2]); // Params for other walls
+		 
+		float nume = abs(curr.x * comp.x + curr.y * comp.y + curr.z * comp.z);
+
+		float denom1 = sqrt(pow(curr.x, 2) + pow(curr.y, 2) + pow(curr.z, 2));
+
+		float denom2 = sqrt(pow(comp.x, 2) + pow(comp.y, 2) + pow(comp.z, 2));
+
+		float cosa = nume / (denom1 * denom2);
+
+		float angle = acos(cosa) * 57.29578; // Result in radians --> convert to degrees
+
+		cout << " > current plane and plane " << i + 1 << ": " << angle;
+
+		if (angle > 80 && angle < 100)
+		{
+			cout << " - walls are orthogonal!" << endl;
+		}
+		else if (angle < 10)
+		{
+			cout << " - walls are opposite!" << endl;
+		}
 	}
 }
 
@@ -371,6 +415,7 @@ int main(int argc, char** argv)
 	vector<pair<Point3f, int>> points = readFile(argv, true);
 	vector<pair<Point3f, int>> subset = points;
 	vector<pair<Point3f, int>> finalset;
+	vector<float*> foundPlanes;
 
 	int num = points.size();
 	vector<bool> fullMask = getEmptyMask(num);
@@ -448,12 +493,15 @@ int main(int argc, char** argv)
 
 		processRefPoints(medIntensity, refPoints, finalset); // Add the component to the final result based on inlier intensity
 
+		calculateAngle(medIntensity, inlierParams, foundPlanes); // Calculate the angle between the currently found and all other walls
+
+		// Outout some runtime info
 		cout << "Plane params: " << inlierParams[0] << ", " << inlierParams[1] << ", " << inlierParams[2] << ", " << inlierParams[3] << endl;
 		cout << "Total inliers: " << inlierCountFull << endl;
 		cout << "Current inliers: " << inlierCountRef << endl; 
 		cout << "Average intensity: " << avgIntensity << endl;
 		cout << "Median intensity: " << medIntensity << endl;
-		cout << "Finished processing object " << h+1 << endl << endl;
+		cout << "Finished processing object " << h + 1 << endl << endl;
 
 		outputCloud(subset, h+1, "# Outlier set in an iteration after removing component."); // Output the full outlier pointcloud 
 		outputCloud(refPoints, 11 + h, "# Reference points belonging to a specific component."); // Output the reference point cloud
